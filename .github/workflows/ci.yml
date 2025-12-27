@@ -1,0 +1,77 @@
+name: build-test-push
+
+on:
+  pull_request:
+  push:
+    branches: [ "main" ]
+    tags: [ "v*" ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE_NAME: ghcr.io/${{ github.repository }}/reservations
+  PORT: "9000"
+
+jobs:
+  build_test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Login nur nötig, wenn wir pushen (main oder tag)
+      - name: Log in to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Image bauen (für PR nur lokal laden; für main/tags zusätzlich pushen)
+      - name: Build image (load for tests)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: |
+            ${{ env.IMAGE_NAME }}:${{ github.sha }}
+
+      # Smoke test: Container starten und 2 Endpunkte prüfen
+      - name: Smoke test container
+        run: |
+          docker run -d --rm -p ${{ env.PORT }}:${{ env.PORT }} --name reservations_ci ${{ env.IMAGE_NAME }}:${{ github.sha }}
+          for i in {1..30}; do
+            if curl -fsS "http://127.0.0.1:${{ env.PORT }}/api/v3/reservations/health" >/dev/null; then
+              echo "Service is up"
+              break
+            fi
+            sleep 1
+          done
+          curl -fsS "http://127.0.0.1:${{ env.PORT }}/api/v3/reservations/status"
+          docker stop reservations_ci
+
+      # Push nur auf main oder bei tags
+      - name: Push image (main)
+        if: github.ref == 'refs/heads/main'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAME }}:latest
+            ${{ env.IMAGE_NAME }}:${{ github.sha }}
+
+      - name: Push image (tag)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAME }}:${{ github.ref_name }}
+            ${{ env.IMAGE_NAME }}:${{ github.sha }}
