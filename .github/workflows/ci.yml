@@ -12,7 +12,7 @@ permissions:
   packages: write
 
 env:
-  IMAGE_NAME: ghcr.io/${{ github.repository }}/reservations
+  # IMAGE_NAME wird im Workflow per Step lowercase gesetzt (siehe unten)
   PORT: "9000"
 
 jobs:
@@ -22,6 +22,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      # GitHub liefert owner/repo ggf. mit Großbuchstaben -> Docker/GHCR verlangt lowercase
+      - name: Set lowercase image name
+        run: |
+          echo "IMAGE_NAME=ghcr.io/${GITHUB_REPOSITORY,,}/reservations" >> $GITHUB_ENV
 
       # Login nur nötig, wenn wir pushen (main oder tag)
       - name: Log in to GHCR
