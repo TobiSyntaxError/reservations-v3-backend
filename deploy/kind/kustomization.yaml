@@ -8,10 +8,10 @@ patches:
   - patch: |-
       - op: replace
         path: /spec/template/spec/containers/0/image
-        value: localhost/reservations-django:local-dev
+        value: ghcr.io/tobisyntaxerror/reservations-v3-backend/reservations:latest
       - op: replace
         path: /spec/template/spec/containers/0/imagePullPolicy
-        value: Never
+        value: Always
       - op: replace
         path: /spec/template/spec/containers/0/ports/0/containerPort
         value: 9000
