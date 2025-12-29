@@ -1,9 +1,11 @@
-from django.http import JsonResponse
-
 from __future__ import annotations
+
+
 from typing import Any
 from django.http import JsonResponse, HttpRequest
 from django.views import View
+
+from django.http import JsonResponse
 
 class StatusView(View):
     AUTHORS = ["Tobias Kipping", "Daniel Lohrengel"]
