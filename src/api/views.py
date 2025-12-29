@@ -5,4 +5,5 @@ def status(request):
     
 
 def health(request):
+    #bitte funktioniert
     return JsonResponse({"live": True, "ready": True})
