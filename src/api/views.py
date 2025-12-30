@@ -19,12 +19,7 @@ class StatusView(View):
 
         )
 
-
-#def status(request):
-#    return JsonResponse({"authors": ["Tobias", "Daniel", "TestUser"]})
-#
-
-class HelathView(View):
+class HealthView(View):
     action: str = "summary" # "summary" | "live" | "ready"
 
     def _db_ready(self) -> bool:
@@ -37,6 +32,12 @@ class HelathView(View):
         except OperationalError:
             return False
         
+    def _error(message: str, *, status: int = 503, code: str = "bad_request") -> JsonResponse:
+        return JsonResponse(
+            {"errors": [{"code": code, "message": message}]},
+            status=status
+        )
+        
     def get(self, requst: HttpRequest, *args: Any, **kwargs: Any) -> JsonResponse:
         if self.action == "live":
             return JsonResponse({"live": True}, status=200)
@@ -45,14 +46,10 @@ class HelathView(View):
             ready = self._db_ready()
             if ready == True:
                 return JsonResponse({"ready": True}, status=200)
-            else:
-                return JsonResponse(
-                    {"errors": [{"code": "bad_request", "message": "Service not ready (database connection failed)."}]},
-                    status=503,
-                )
+            return self._error("Service not ready (database connection failed).", status=503)
             
-        live = True
         ready = self._db_ready()
+        live = True
         return JsonResponse(
             {
                 "live": live,
@@ -61,7 +58,3 @@ class HelathView(View):
             },
             status=200
         )
-
-
-def health(request):
-    return JsonResponse({"live": True, "ready": True})
