@@ -62,38 +62,56 @@ jobs:
             ${{ env.IMAGE_NAME }}:${{ github.sha }}
 
       # Smoke test: Container starten und Endpunkte prüfen (inkl. DB)
+      # Output wird in smoke.log geschrieben und als Artifact hochgeladen.
       - name: Smoke test container (with Postgres)
         run: |
-          docker run -d --rm \
-            -p ${{ env.PORT }}:${{ env.PORT }} \
-            -e POSTGRES_RESERVATIONS_HOST=host.docker.internal \
-            -e POSTGRES_RESERVATIONS_PORT=5432 \
-            -e POSTGRES_RESERVATIONS_DBNAME=reservations_v3 \
-            -e POSTGRES_RESERVATIONS_USER=postgres \
-            -e POSTGRES_RESERVATIONS_PASSWORD=postgres \
-            --add-host=host.docker.internal:host-gateway \
-            --name reservations_ci \
-            ${{ env.IMAGE_NAME }}:${{ github.sha }}
+          set -e
+          {
+            echo "=== smoke test start ==="
+            echo "IMAGE=${{ env.IMAGE_NAME }}:${{ github.sha }}"
+            echo "PORT=${{ env.PORT }}"
+            echo "=== starting container ==="
 
-          # warten bis LIVE endpoint antwortet
-          for i in {1..30}; do
-            if curl -fsS "http://127.0.0.1:${{ env.PORT }}/api/v3/reservations/health/live" >/dev/null; then
-              echo "Service is up (live)"
-              break
-            fi
-            sleep 1
-          done
+            docker run -d --rm \
+              -p ${{ env.PORT }}:${{ env.PORT }} \
+              -e POSTGRES_RESERVATIONS_HOST=host.docker.internal \
+              -e POSTGRES_RESERVATIONS_PORT=5432 \
+              -e POSTGRES_RESERVATIONS_DBNAME=reservations_v3 \
+              -e POSTGRES_RESERVATIONS_USER=postgres \
+              -e POSTGRES_RESERVATIONS_PASSWORD=postgres \
+              --add-host=host.docker.internal:host-gateway \
+              --name reservations_ci \
+              ${{ env.IMAGE_NAME }}:${{ github.sha }}
 
-          # status muss gehen
-          curl -fsS "http://127.0.0.1:${{ env.PORT }}/api/v3/reservations/status"
+            echo "=== waiting for /health/live ==="
+            for i in {1..30}; do
+              if curl -fsS "http://127.0.0.1:${{ env.PORT }}/api/v3/reservations/health/live" >/dev/null; then
+                echo "Service is up (live)"
+                break
+              fi
+              sleep 1
+            done
 
-          # ready muss jetzt gehen (DB vorhanden)
-          curl -fsS "http://127.0.0.1:${{ env.PORT }}/api/v3/reservations/health/ready"
+            echo "=== GET /status ==="
+            curl -fsS "http://127.0.0.1:${{ env.PORT }}/api/v3/reservations/status"
 
-          # summary auch
-          curl -fsS "http://127.0.0.1:${{ env.PORT }}/api/v3/reservations/health"
+            echo "=== GET /health/ready ==="
+            curl -fsS "http://127.0.0.1:${{ env.PORT }}/api/v3/reservations/health/ready"
 
-          docker stop reservations_ci
+            echo "=== GET /health ==="
+            curl -fsS "http://127.0.0.1:${{ env.PORT }}/api/v3/reservations/health"
+
+            echo "=== stopping container ==="
+            docker stop reservations_ci
+
+            echo "=== smoke test done ==="
+          } | tee smoke.log
+
+      - name: Upload smoke log
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-log
+          path: smoke.log
 
       # Push nur auf main oder bei tags
       - name: Push image (main)

@@ -45,10 +45,12 @@ class HelathView(View):
             ready = self._db_ready()
             if ready == True:
                 return JsonResponse({"ready": True}, status=200)
-            return JsonResponse(
-                {"errors": [{"code": "bad_request", "message": "Service not ready (database connection failed)."}]},
-                status=503,
-            )
+            else:
+                return JsonResponse(
+                    {"errors": [{"code": "bad_request", "message": "Service not ready (database connection failed)."}]},
+                    status=503,
+                )
+            
         live = True
         ready = self._db_ready()
         return JsonResponse(
