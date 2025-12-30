@@ -18,6 +18,21 @@ jobs:
   build_test:
     runs-on: ubuntu-latest
 
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: reservations_v3
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres -d reservations_v3"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -46,18 +61,38 @@ jobs:
           tags: |
             ${{ env.IMAGE_NAME }}:${{ github.sha }}
 
-      # Smoke test: Container starten und 2 Endpunkte prüfen
-      - name: Smoke test container
+      # Smoke test: Container starten und Endpunkte prüfen (inkl. DB)
+      - name: Smoke test container (with Postgres)
         run: |
-          docker run -d --rm -p ${{ env.PORT }}:${{ env.PORT }} --name reservations_ci ${{ env.IMAGE_NAME }}:${{ github.sha }}
+          docker run -d --rm \
+            -p ${{ env.PORT }}:${{ env.PORT }} \
+            -e POSTGRES_RESERVATIONS_HOST=host.docker.internal \
+            -e POSTGRES_RESERVATIONS_PORT=5432 \
+            -e POSTGRES_RESERVATIONS_DBNAME=reservations_v3 \
+            -e POSTGRES_RESERVATIONS_USER=postgres \
+            -e POSTGRES_RESERVATIONS_PASSWORD=postgres \
+            --add-host=host.docker.internal:host-gateway \
+            --name reservations_ci \
+            ${{ env.IMAGE_NAME }}:${{ github.sha }}
+
+          # warten bis LIVE endpoint antwortet
           for i in {1..30}; do
-            if curl -fsS "http://127.0.0.1:${{ env.PORT }}/api/v3/reservations/health" >/dev/null; then
-              echo "Service is up"
+            if curl -fsS "http://127.0.0.1:${{ env.PORT }}/api/v3/reservations/health/live" >/dev/null; then
+              echo "Service is up (live)"
               break
             fi
             sleep 1
           done
+
+          # status muss gehen
           curl -fsS "http://127.0.0.1:${{ env.PORT }}/api/v3/reservations/status"
+
+          # ready muss jetzt gehen (DB vorhanden)
+          curl -fsS "http://127.0.0.1:${{ env.PORT }}/api/v3/reservations/health/ready"
+
+          # summary auch
+          curl -fsS "http://127.0.0.1:${{ env.PORT }}/api/v3/reservations/health"
+
           docker stop reservations_ci
 
       # Push nur auf main oder bei tags
