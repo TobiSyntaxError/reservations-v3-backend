@@ -13,6 +13,7 @@ permissions:
 
 env:
   PORT: "9000"
+  FAIL_PORT: "9001"
 
 jobs:
   build_test:
@@ -61,17 +62,21 @@ jobs:
           tags: |
             ${{ env.IMAGE_NAME }}:${{ github.sha }}
 
-      # Smoke test: Container starten und Endpunkte prüfen (inkl. DB)
+      # Smoke tests: Happy path (DB OK) + Failure path (DB unreachable)
       # Output wird in smoke.log geschrieben und als Artifact hochgeladen.
-      - name: Smoke test container (with Postgres)
+      - name: Smoke test container (happy + failure)
         run: |
           set -e
           {
             echo "=== smoke test start ==="
             echo "IMAGE=${{ env.IMAGE_NAME }}:${{ github.sha }}"
-            echo "PORT=${{ env.PORT }}"
-            echo "=== starting container ==="
+            echo "HAPPY_PORT=${{ env.PORT }}"
+            echo "FAIL_PORT=${{ env.FAIL_PORT }}"
 
+            ####################################################################
+            # HAPPY PATH: DB erreichbar -> /health/ready = 200
+            ####################################################################
+            echo "=== HAPPY: starting container with Postgres env ==="
             docker run -d --rm \
               -p ${{ env.PORT }}:${{ env.PORT }} \
               -e POSTGRES_RESERVATIONS_HOST=host.docker.internal \
@@ -80,29 +85,64 @@ jobs:
               -e POSTGRES_RESERVATIONS_USER=postgres \
               -e POSTGRES_RESERVATIONS_PASSWORD=postgres \
               --add-host=host.docker.internal:host-gateway \
-              --name reservations_ci \
+              --name reservations_ci_happy \
               ${{ env.IMAGE_NAME }}:${{ github.sha }}
 
-            echo "=== waiting for /health/live ==="
+            echo "=== HAPPY: waiting for /health/live ==="
             for i in {1..30}; do
               if curl -fsS "http://127.0.0.1:${{ env.PORT }}/api/v3/reservations/health/live" >/dev/null; then
-                echo "Service is up (live)"
+                echo "HAPPY: Service is up (live)"
                 break
               fi
               sleep 1
             done
 
-            echo "=== GET /status ==="
+            echo "=== HAPPY: GET /status ==="
             curl -fsS "http://127.0.0.1:${{ env.PORT }}/api/v3/reservations/status"
 
-            echo "=== GET /health/ready ==="
+            echo "=== HAPPY: GET /health/ready (expect 200) ==="
             curl -fsS "http://127.0.0.1:${{ env.PORT }}/api/v3/reservations/health/ready"
 
-            echo "=== GET /health ==="
+            echo "=== HAPPY: GET /health ==="
             curl -fsS "http://127.0.0.1:${{ env.PORT }}/api/v3/reservations/health"
 
-            echo "=== stopping container ==="
-            docker stop reservations_ci
+            echo "=== HAPPY: stopping container ==="
+            docker stop reservations_ci_happy
+
+            ####################################################################
+            # FAILURE PATH: DB nicht erreichbar -> /health/ready = 503 + errors[]
+            ####################################################################
+            echo "=== FAIL: starting container with wrong DB host ==="
+            docker run -d --rm \
+              -p ${{ env.FAIL_PORT }}:${{ env.PORT }} \
+              -e POSTGRES_RESERVATIONS_HOST=does-not-exist \
+              -e POSTGRES_RESERVATIONS_PORT=5432 \
+              -e POSTGRES_RESERVATIONS_DBNAME=reservations_v3 \
+              -e POSTGRES_RESERVATIONS_USER=postgres \
+              -e POSTGRES_RESERVATIONS_PASSWORD=postgres \
+              --name reservations_ci_fail \
+              ${{ env.IMAGE_NAME }}:${{ github.sha }}
+
+            echo "=== FAIL: waiting for /health/live ==="
+            for i in {1..30}; do
+              if curl -fsS "http://127.0.0.1:${{ env.FAIL_PORT }}/api/v3/reservations/health/live" >/dev/null; then
+                echo "FAIL: Service is up (live)"
+                break
+              fi
+              sleep 1
+            done
+
+            echo "=== FAIL: GET /health/ready (expect 503) ==="
+            code=$(curl -sS -o ready_fail.json -w "%{http_code}" "http://127.0.0.1:${{ env.FAIL_PORT }}/api/v3/reservations/health/ready")
+            echo "FAIL: /health/ready http_code=$code"
+            cat ready_fail.json
+            test "$code" = "503"
+
+            echo "=== FAIL: GET /health (should still answer; likely ready=false) ==="
+            curl -sS "http://127.0.0.1:${{ env.FAIL_PORT }}/api/v3/reservations/health" || true
+
+            echo "=== FAIL: stopping container ==="
+            docker stop reservations_ci_fail
 
             echo "=== smoke test done ==="
           } | tee smoke.log
@@ -111,7 +151,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: smoke-log
-          path: smoke.log
+          path: |
+            smoke.log
+            ready_fail.json
 
       # Push nur auf main oder bei tags
       - name: Push image (main)
