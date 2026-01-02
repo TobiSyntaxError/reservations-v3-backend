@@ -6,12 +6,12 @@ class Reservation(models.Model):
     room_id = models.UUIDField()
     from_date = models.DateField()
     to_date = models.DateField()
-    delete_at = models.DateTimeField(null=True, blank=True)
+    deleted_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         indexes = [
             models.Index(fields=["room_id", "from_date", "to_date"]),
-            models.Index(fields=["delete_at"])
+            models.Index(fields=["deleted_at"])
         ]
 
     def __str__(self) -> str:

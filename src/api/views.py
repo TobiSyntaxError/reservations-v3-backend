@@ -88,6 +88,26 @@ def error_container(message: str, *, status: int, code: str = "bad_request", mor
         payload["errors"][0]["more_info"] = more_info
     return JsonResponse(payload, status=status)
 
+def rfc3339(dt) -> str:
+    if dt is None:
+        return ""
+    if timezone.is_naive(dt):
+        dt = timezone.make_aware(dt, timezone.get_current_timezone())
+    dt_utc = dt.astimezone(timezone.utc)
+    s = dt_utc.isoformat(timespec="milliseconds")
+    return s.replace("+00:00", "Z")
+
+def reservations_to_dict(r: Reservation) -> dict[str, Any]:
+    data: dict[str, Any] = {
+        "id": str(r.id),
+        "from": r.from_date.isoformat(),
+        "to": r.to_date.isoformat(),
+        "room_id": str(r.room_id),
+    }
+    if r.deleted_at is not None:
+        data["deleted_at"] = rfc3339(r.deleted_at)
+    return data
+
 class ReservationView(View):
     def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> JsonResponse:
         include_deleted = parse_bool(value=request.GET.get("include_deleted"))
@@ -110,8 +130,19 @@ class ReservationView(View):
                 before_d = parse_date(before_row)
             except Exception:
                 return error_container("Invalid before (must be date YYYY-MM-DD)", status=400)
-            qs = qs.filter(from_date__It=before_d)
+            qs = qs.filter(from_date__lt=before_d)
 
+        after_row = request.GET.get("after")
+        if after_row:
+            try:
+                after_d = parse_date(after_row)
+            except Exception:
+                return error_container("Invalid after (must be date YYYY-MM-DD)", status=400)
+            qs = qs.filter(to_date__gt=after_d)
+
+        qs = qs.order_by("from_date", "to_date", "id")
+
+        return JsonResponse({"reservations": {reservations_to_dict(r) for r in qs}}, status=200)
 
     def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> JsonResponse:
         pass
