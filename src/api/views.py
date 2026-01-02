@@ -149,8 +149,21 @@ class ReservationView(View):
         pass
 
 class ReservationDetailView(View):
-    def get() -> JsonResponse:
-        pass
+    def _get_uuid(self, raw_id: str) -> UUID | None:
+        try:
+            return _parse_uuid(raw_id)
+        except Exception:
+            return None
+        
+    def get(self, request: HttpRequest, id: str, *args: Any, **kwargs: Any) -> JsonResponse:
+        rid = self._get_uuid(id)
+        if rid is None:
+            return _error_container("invalid id (must be uuid).", status=400)
+        
+        reservation = Reservation.objects.filter(id=rid).first()
+        if reservation is None:
+            return _error_container("Reservation not found.", status=404, code="no_need_to_know")
+        return JsonResponse(_reservations_to_dict(reservation), status=400)
 
     def put() -> JsonResponse:
         pass
