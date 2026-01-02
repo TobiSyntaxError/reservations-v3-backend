@@ -210,8 +210,45 @@ class ReservationDetailView(View):
             return _error_container("Reservation not found.", status=404, code="no_need_to_know")
         return JsonResponse(_reservations_to_dict(reservation), status=200)
 
-    def put() -> JsonResponse:
-        pass
-    
+    def put(self, request: HttpRequest, id: str, *args: Any, **kwargs: Any) -> JsonResponse:
+        rid = self._get_uuid(id)
+        if rid is None:
+            return _error_container("Invalid id (must be uuid)", status=400)
+        
+        try:
+            payload = json.loads(request.body.decode("utf-8") or "{}")
+        except Exception:
+            return _error_container("Invalid JSON body.", status=400)
+        
+        if not isinstance(payload, dict):
+            return _error_container("Inavalid JSON body (must be object).", status=400)
+        
+        restore_request = ("deleted_at" in payload and payload["delted_at"] is None)
+        if "deleted_at" in payload and payload["deleted_at"] is not None:
+            return _error_container('Invalid input: "deleted_at" must be null if provided', status=400)
+        
+        validated = _validate_prototype(payload)
+        if isinstance(validated, JsonResponse):
+            return validated
+        
+        from_d, to_d, room_id = validated
+
+        existing = Reservation.objects.filter(id=rid).first()
+
+        if existing is not None:
+            #to do auth implementieren (nur wenn die Reservierung bereits existiert)
+            return _error_container("Noch nicht implementiert", status=400)
+        
+        if _overlaps_exists(room_id=room_id, from_d=from_d, to_d=to_d):
+            return _error_container(
+                "Invalid input: reservation overlaps with an existing reservataion.",
+                status=400,
+                more_info="Reservation on rooms MUST NOT overlap"
+            )
+        
+        created = Reservation.objects.create(id=rid, room_id=room_id, from_date=from_d, to_date=to_d, deleted_at=None)
+        return JsonResponse(_reservations_to_dict(created), status=201)
+
+
     def delete() -> JsonResponse | HttpResponse:
         pass
