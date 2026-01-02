@@ -241,3 +241,88 @@ kubectl logs -n biletado deploy/reservations --tail=200
 Typische Fehler:
 - Image-Name stimmt nicht (muss exakt `localhost/reservations-django:local-dev` sein bei PullPolicy Never)
 - Django importiert nicht wegen `src/` → `PYTHONPATH=/app/src` im Containerfile setzen
+
+
+
+
+# reservations-v3-backend – Lokales Setup mit kind (Podman) + GHCR
+
+## 1) Cluster neu (wie vorher)
+
+```powershell
+kind delete cluster --name biletado
+$env:KIND_EXPERIMENTAL_PROVIDER="podman"
+kind create cluster --name biletado
+kubectl cluster-info
+```
+
+## 2) Biletado Stack installieren (wie vorher)
+
+```powershell
+kubectl create namespace biletado
+kubectl config set-context --current --namespace biletado
+
+kubectl apply -k "https://gitlab.com/biletado/kustomize.git//overlays/kind?ref=main" --prune -l app.kubernetes.io/part-of=biletado -n biletado
+kubectl rollout status deployment -n biletado -l app.kubernetes.io/part-of=biletado --timeout=600s
+kubectl wait pods -n biletado -l app.kubernetes.io/part-of=biletado --for condition=Ready --timeout=240s
+```
+
+## 3) Patch auf dein GHCR-Image anwenden (statt lokal bauen + tar + load)
+
+### 3.1 `deploy/kind/kustomization.yaml` anpassen
+
+Du ersetzt in deinem Patch:
+
+**vorher:**
+- `localhost/reservations-django:local-dev`
+- `imagePullPolicy: Never`
+
+**nachher (Beispiel – Owner/Repo alles lowercase!):**
+- `ghcr.io/tobisyntaxerror/reservations-v3-backend/reservations:latest`
+- `imagePullPolicy: Always`
+
+Also in deinem Patch ungefähr so:
+
+```yaml
+- op: replace
+  path: /spec/template/spec/containers/0/image
+  value: ghcr.io/tobisyntaxerror/reservations-v3-backend/reservations:latest
+- op: replace
+  path: /spec/template/spec/containers/0/imagePullPolicy
+  value: Always
+```
+
+Tipp: Wenn du lieber „stabil“ willst, nimm statt `latest` einen SHA-Tag aus Actions (z.B. `:<commitsha>`). Für Entwicklung ist `latest` ok.
+
+### 3.2 Deploy ausführen
+
+```powershell
+kubectl apply -k deploy/kind --prune -l app.kubernetes.io/part-of=biletado -n biletado
+kubectl rollout status deployment/reservations -n biletado --timeout=240s
+```
+
+## 4) Datenbank-Migrationen ausführen (wichtig!)
+
+Nach einem frischen Cluster (oder nach Model/Migration-Änderungen) ist die DB leer.  
+Damit die Reservations-Endpunkte funktionieren, musst du Migrationen im laufenden Pod ausführen:
+
+```powershell
+kubectl exec -n biletado deploy/reservations -- python manage.py migrate --noinput
+```
+
+## 5) Testen (gleich wie vorher)
+
+```powershell
+kubectl port-forward -n biletado svc/reservations 9093:80
+
+curl.exe http://localhost:9093/api/v3/reservations/status
+curl.exe http://localhost:9093/api/v3/reservations/health
+```
+
+## 6) Weboberfläche (Ingress) bleibt gleich
+
+```powershell
+kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
+kubectl wait --namespace ingress-nginx --for=condition=Ready pod --selector=app.kubernetes.io/component=controller --timeout=180s
+kubectl port-forward -n ingress-nginx svc/ingress-nginx-controller 9090:80
+```
