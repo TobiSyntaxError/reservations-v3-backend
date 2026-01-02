@@ -1,16 +1,31 @@
 from __future__ import annotations
 
-from typing import Any
-from django.http import JsonResponse, HttpRequest, HttpResponse
-from django.views import View
-from django.db import connection
-from datetime import date, timezone as dt_timezone
-from django.utils import timezone
-from django.db.utils import OperationalError
+#from typing import Any
+#from django.http import JsonResponse, HttpRequest, HttpResponse
+#from django.views import View
+#from django.db import connection
+#from datetime import date, timezone as dt_timezone
+#from django.utils import timezone
+#from django.db.utils import OperationalError
+#
+#import json
+#from datetime import date
+#from uuid import UUID
+#
+#from .models import Reservation
+
+from __future__ import annotations
 
 import json
-from datetime import date
+from datetime import date, timezone as dt_timezone
+from typing import Any
 from uuid import UUID
+
+from django.db import connection
+from django.db.utils import OperationalError
+from django.http import HttpRequest, HttpResponse, JsonResponse
+from django.utils import timezone
+from django.views import View
 
 from .models import Reservation
 
@@ -112,17 +127,17 @@ def _reservations_to_dict(r: Reservation) -> dict[str, Any]:
 def _validate_prototype(payload: dict[str, Any]) -> tuple[date, date, UUID] | JsonResponse:
     for k in ("from", "to", "room_id"):
         if k not in payload:
-            return _error_container(f'Missing required property "{k}.', status=400)
+            return _error_container(f'Missing required property "{k}".', status=400)
         
     try:
         from_d = _parse_date(payload["from"])
         to_d = _parse_date(payload["to"])
         room_id = _parse_uuid(payload["room_id"])
     except Exception:
-        return _error_container("Inavalid Input (date/uuid parsing failed).", status=400)
+        return _error_container("Invalid Input (date/uuid parsing failed).", status=400)
     
     if not (from_d < to_d):
-        return _error_container('Invalid Input: "from must be < to.', status=400) 
+        return _error_container('Invalid Input: "from" must be < "to".', status=400) 
     
     return from_d, to_d, room_id
 
@@ -189,8 +204,9 @@ class ReservationView(View):
                 status=400,
                 more_info="Reservations on rooms MUST NOT overlap"
             )
-        room = Reservation.objects.create(room_id=room_id, from_d=from_d, to_d=to_d)
-        return JsonResponse(_reservations_to_dict(room), status=201)
+        reservation = Reservation.objects.create(room_id=room_id, from_date=from_d, to_date=to_d)
+
+        return JsonResponse(_reservations_to_dict(reservation), status=201)
 
 
 class ReservationDetailView(View):
