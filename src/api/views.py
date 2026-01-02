@@ -1,21 +1,5 @@
 from __future__ import annotations
 
-#from typing import Any
-#from django.http import JsonResponse, HttpRequest, HttpResponse
-#from django.views import View
-#from django.db import connection
-#from datetime import date, timezone as dt_timezone
-#from django.utils import timezone
-#from django.db.utils import OperationalError
-#
-#import json
-#from datetime import date
-#from uuid import UUID
-#
-#from .models import Reservation
-
-from __future__ import annotations
-
 import json
 from datetime import date, timezone as dt_timezone
 from typing import Any
