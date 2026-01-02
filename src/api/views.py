@@ -116,26 +116,26 @@ class ReservationView(View):
         if not include_deleted:
             qs = qs.filter(deleted_at__isnull=True)
 
-        room_id_row = request.GET.get("room_id")
-        if room_id_row:
+        room_id_raw = request.GET.get("room_id")
+        if room_id_raw:
             try:
-                room_id = _parse_uuid(room_id_row)
+                room_id = _parse_uuid(room_id_raw)
             except Exception:
                 return _error_container("Invalid room_id (must be uuid).", status=400)
             qs = qs.filter(room_id=room_id)
 
-        before_row = request.GET.get("before")
-        if before_row:
+        before_raw = request.GET.get("before")
+        if before_raw:
             try:
-                before_d = _parse_date(before_row)
+                before_d = _parse_date(before_raw)
             except Exception:
                 return _error_container("Invalid before (must be date YYYY-MM-DD)", status=400)
             qs = qs.filter(from_date__lte=before_d)
 
-        after_row = request.GET.get("after")
-        if after_row:
+        after_raw = request.GET.get("after")
+        if after_raw:
             try:
-                after_d = _parse_date(after_row)
+                after_d = _parse_date(after_raw)
             except Exception:
                 return _error_container("Invalid after (must be date YYYY-MM-DD)", status=400)
             qs = qs.filter(to_date__gte=after_d)
