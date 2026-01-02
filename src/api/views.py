@@ -40,7 +40,7 @@ class HealthView(View):
         except OperationalError:
             return False
         
-    def _error(message: str, *, status: int = 503, code: str = "bad_request") -> JsonResponse:
+    def _error(self, message: str, *, status: int = 503, code: str = "bad_request") -> JsonResponse:
         return JsonResponse(
             {"errors": [{"code": code, "message": message}]},
             status=status
@@ -69,7 +69,7 @@ class HealthView(View):
 
 
 
-def _parse_bool(value: str | None, default: bool = True) -> bool:
+def _parse_bool(value: str | None, default: bool = False) -> bool:
     if value is None:
         return default
     return value.strip().lower() in {"1", "true", "yes", "y", "on"}
@@ -163,7 +163,7 @@ class ReservationDetailView(View):
         reservation = Reservation.objects.filter(id=rid).first()
         if reservation is None:
             return _error_container("Reservation not found.", status=404, code="no_need_to_know")
-        return JsonResponse(_reservations_to_dict(reservation), status=400)
+        return JsonResponse(_reservations_to_dict(reservation), status=200)
 
     def put() -> JsonResponse:
         pass

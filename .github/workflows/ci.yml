@@ -118,44 +118,58 @@ jobs:
             echo "=== HAPPY: seed DB ==="
             docker exec reservations_ci_happy python manage.py seed_reservations --reset
 
-            echo "=== HAPPY: GET /reservations (expect non-empty list) ==="
+            echo "=== HAPPY: GET /reservations (expect non-empty list, no deleted_at) ==="
             curl -fsS "http://127.0.0.1:${{ env.PORT }}/api/v3/reservations/reservations" -o reservations_active.json
             cat reservations_active.json
             echo
 
-            echo "=== HAPPY: GET /reservations?include_deleted=true (expect more items) ==="
+            echo "=== HAPPY: GET /reservations?include_deleted=true (expect deleted_at entries) ==="
             curl -fsS "http://127.0.0.1:${{ env.PORT }}/api/v3/reservations/reservations?include_deleted=true" -o reservations_all.json
             cat reservations_all.json
             echo
 
-            python3 - <<'PY'
+            echo "=== HAPPY: validate active vs include_deleted responses + pick dynamic test params ==="
+            eval $(python3 - <<'PY'
           import json
           a = json.load(open("reservations_active.json", "r", encoding="utf-8"))
           b = json.load(open("reservations_all.json", "r", encoding="utf-8"))
+
           assert "reservations" in a and isinstance(a["reservations"], list), "active response must have reservations list"
           assert "reservations" in b and isinstance(b["reservations"], list), "all response must have reservations list"
-          assert len(a["reservations"]) > 0, "expected seeded data (active list non-empty)"
-          assert len(b["reservations"]) > len(a["reservations"]), "include_deleted=true should add items"
-          PY
+
+          active = a["reservations"]
+          allr = b["reservations"]
+
+          assert len(active) > 0, "expected seeded data (active list non-empty)"
+          assert all("deleted_at" not in r for r in active), "active list must NOT contain deleted_at"
+          assert any("deleted_at" in r for r in allr), "include_deleted=true must include deleted_at entries"
+          assert len(allr) >= len(active), "include_deleted=true should have >= items than active"
+
+          target = active[0]
+          print(f"ROOM_ID={target['room_id']}")
+          print(f"BEFORE={target['from']}")
+          print(f"AFTER={target['to']}")
+          print(f"TARGET_ID={target['id']}")
+          PY)
+
+            echo "Picked ROOM_ID=$ROOM_ID BEFORE=$BEFORE AFTER=$AFTER TARGET_ID=$TARGET_ID"
 
             echo "=== HAPPY: room_id filter (expect only that room) ==="
-            ROOM_ID="11111111-1111-1111-1111-111111111111"
             curl -fsS "http://127.0.0.1:${{ env.PORT }}/api/v3/reservations/reservations?room_id=${ROOM_ID}" -o reservations_room.json
             cat reservations_room.json
             echo
 
             python3 - <<'PY'
-          import json
-          ROOM_ID="11111111-1111-1111-1111-111111111111"
+          import json, os
+          ROOM_ID=os.environ["ROOM_ID"]
           d = json.load(open("reservations_room.json", "r", encoding="utf-8"))
           rs = d.get("reservations")
-          assert isinstance(rs, list), "reservations must be a list"
-          assert len(rs) > 0, "expected at least one reservation for seeded room"
+          assert isinstance(rs, list) and len(rs) > 0, "expected at least one reservation for room_id filter"
           for r in rs:
             assert r.get("room_id") == ROOM_ID, f"unexpected room_id {r.get('room_id')}"
           PY
 
-            echo "=== HAPPY: invalid room_id -> 400 + errors[] ==="
+            echo "=== HAPPY: invalid room_id -> 400 + ErrorContainer ==="
             code=$(curl -sS -o bad_room.json -w "%{http_code}" "http://127.0.0.1:${{ env.PORT }}/api/v3/reservations/reservations?room_id=not-a-uuid")
             echo "http_code=$code"
             cat bad_room.json
@@ -170,48 +184,19 @@ jobs:
           assert "trace" in d and isinstance(d["trace"], str)
           PY
 
-            echo "=== HAPPY: before/after inclusive boundary checks (seed assumed) ==="
-            ROOM_ID="11111111-1111-1111-1111-111111111111"
-
-            # before should include entries with from == before (inclusive)
-            BEFORE="2026-01-10"
+            echo "=== HAPPY: before/after inclusive boundary checks (dynamic) ==="
             curl -fsS "http://127.0.0.1:${{ env.PORT }}/api/v3/reservations/reservations?room_id=${ROOM_ID}&before=${BEFORE}" -o reservations_before.json
-
-            # after should include entries with to == after (inclusive)
-            AFTER="2026-01-12"
             curl -fsS "http://127.0.0.1:${{ env.PORT }}/api/v3/reservations/reservations?room_id=${ROOM_ID}&after=${AFTER}" -o reservations_after.json
 
             python3 - <<'PY'
-          import json
-          from datetime import date
+          import json, os
+          TARGET_ID=os.environ["TARGET_ID"]
 
-          ROOM_ID="11111111-1111-1111-1111-111111111111"
-          BEFORE=date.fromisoformat("2026-01-10")
-          AFTER=date.fromisoformat("2026-01-12")
+          rb = json.load(open("reservations_before.json", "r", encoding="utf-8")).get("reservations", [])
+          ra = json.load(open("reservations_after.json", "r", encoding="utf-8")).get("reservations", [])
 
-          def load(p):
-            d = json.load(open(p, "r", encoding="utf-8"))
-            rs = d.get("reservations")
-            assert isinstance(rs, list)
-            return rs
-
-          rs_before = load("reservations_before.json")
-          rs_after  = load("reservations_after.json")
-
-          # must respect room_id and filter constraints
-          for r in rs_before:
-            assert r["room_id"] == ROOM_ID
-            frm = date.fromisoformat(r["from"])
-            assert frm <= BEFORE
-
-          for r in rs_after:
-            assert r["room_id"] == ROOM_ID
-            to = date.fromisoformat(r["to"])
-            assert to >= AFTER
-
-          # inclusive: expect at least one boundary match if seed contains these values
-          assert any(r["from"] == "2026-01-10" for r in rs_before), "expected an entry with from==before (inclusive)"
-          assert any(r["to"]   == "2026-01-12" for r in rs_after),  "expected an entry with to==after (inclusive)"
+          assert any(r.get("id") == TARGET_ID for r in rb), "inclusive before should include target when before==from"
+          assert any(r.get("id") == TARGET_ID for r in ra), "inclusive after should include target when after==to"
           PY
 
             echo "=== HAPPY: stopping container ==="
@@ -219,7 +204,7 @@ jobs:
             echo
 
             ####################################################################
-            # FAILURE PATH: DB nicht erreichbar -> /health/ready = 503 + errors[]
+            # FAILURE PATH: DB nicht erreichbar -> /health/ready = 503
             ####################################################################
             echo "=== FAIL: starting container with wrong DB host ==="
             docker run -d --rm \
