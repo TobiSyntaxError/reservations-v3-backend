@@ -61,12 +61,27 @@ jobs:
 
       - name: Smoke test container (happy + failure)
         run: |
-          set -e
+          set -euo pipefail
           {
             echo "=== smoke test start ==="
             echo "IMAGE=${{ env.IMAGE_NAME }}:${{ github.sha }}"
             echo "HAPPY_PORT=${{ env.PORT }}"
             echo "FAIL_PORT=${{ env.FAIL_PORT }}"
+
+            wait_for() {
+              local url="$1"
+              local name="$2"
+              echo "=== waiting for $name: $url ==="
+              for i in {1..40}; do
+                if curl -fsS "$url" >/dev/null; then
+                  echo "$name: up"
+                  return 0
+                fi
+                sleep 1
+              done
+              echo "$name: did not become ready in time"
+              return 1
+            }
 
             ####################################################################
             # HAPPY PATH: DB erreichbar -> /health/ready = 200
@@ -83,14 +98,7 @@ jobs:
               --name reservations_ci_happy \
               ${{ env.IMAGE_NAME }}:${{ github.sha }}
 
-            echo "=== HAPPY: waiting for /health/live ==="
-            for i in {1..30}; do
-              if curl -fsS "http://127.0.0.1:${{ env.PORT }}/api/v3/reservations/health/live" >/dev/null; then
-                echo "HAPPY: Service is up (live)"
-                break
-              fi
-              sleep 1
-            done
+            wait_for "http://127.0.0.1:${{ env.PORT }}/api/v3/reservations/health/live" "HAPPY live"
 
             echo "=== HAPPY: GET /status ==="
             curl -fsS "http://127.0.0.1:${{ env.PORT }}/api/v3/reservations/status"
@@ -103,6 +111,108 @@ jobs:
             echo "=== HAPPY: GET /health ==="
             curl -fsS "http://127.0.0.1:${{ env.PORT }}/api/v3/reservations/health"
             echo
+
+            echo "=== HAPPY: migrate DB ==="
+            docker exec reservations_ci_happy python manage.py migrate --noinput
+
+            echo "=== HAPPY: seed DB ==="
+            docker exec reservations_ci_happy python manage.py seed_reservations --reset
+
+            echo "=== HAPPY: GET /reservations (expect non-empty list) ==="
+            curl -fsS "http://127.0.0.1:${{ env.PORT }}/api/v3/reservations/reservations" -o reservations_active.json
+            cat reservations_active.json
+            echo
+
+            echo "=== HAPPY: GET /reservations?include_deleted=true (expect more items) ==="
+            curl -fsS "http://127.0.0.1:${{ env.PORT }}/api/v3/reservations/reservations?include_deleted=true" -o reservations_all.json
+            cat reservations_all.json
+            echo
+
+            python3 - <<'PY'
+          import json
+          a = json.load(open("reservations_active.json", "r", encoding="utf-8"))
+          b = json.load(open("reservations_all.json", "r", encoding="utf-8"))
+          assert "reservations" in a and isinstance(a["reservations"], list), "active response must have reservations list"
+          assert "reservations" in b and isinstance(b["reservations"], list), "all response must have reservations list"
+          assert len(a["reservations"]) > 0, "expected seeded data (active list non-empty)"
+          assert len(b["reservations"]) > len(a["reservations"]), "include_deleted=true should add items"
+          PY
+
+            echo "=== HAPPY: room_id filter (expect only that room) ==="
+            ROOM_ID="11111111-1111-1111-1111-111111111111"
+            curl -fsS "http://127.0.0.1:${{ env.PORT }}/api/v3/reservations/reservations?room_id=${ROOM_ID}" -o reservations_room.json
+            cat reservations_room.json
+            echo
+
+            python3 - <<'PY'
+          import json
+          ROOM_ID="11111111-1111-1111-1111-111111111111"
+          d = json.load(open("reservations_room.json", "r", encoding="utf-8"))
+          rs = d.get("reservations")
+          assert isinstance(rs, list), "reservations must be a list"
+          assert len(rs) > 0, "expected at least one reservation for seeded room"
+          for r in rs:
+            assert r.get("room_id") == ROOM_ID, f"unexpected room_id {r.get('room_id')}"
+          PY
+
+            echo "=== HAPPY: invalid room_id -> 400 + errors[] ==="
+            code=$(curl -sS -o bad_room.json -w "%{http_code}" "http://127.0.0.1:${{ env.PORT }}/api/v3/reservations/reservations?room_id=not-a-uuid")
+            echo "http_code=$code"
+            cat bad_room.json
+            echo
+            test "$code" = "400"
+
+            python3 - <<'PY'
+          import json
+          d = json.load(open("bad_room.json", "r", encoding="utf-8"))
+          assert "errors" in d and isinstance(d["errors"], list) and len(d["errors"]) >= 1
+          assert "code" in d["errors"][0] and "message" in d["errors"][0]
+          assert "trace" in d and isinstance(d["trace"], str)
+          PY
+
+            echo "=== HAPPY: before/after inclusive boundary checks (seed assumed) ==="
+            ROOM_ID="11111111-1111-1111-1111-111111111111"
+
+            # before should include entries with from == before (inclusive)
+            BEFORE="2026-01-10"
+            curl -fsS "http://127.0.0.1:${{ env.PORT }}/api/v3/reservations/reservations?room_id=${ROOM_ID}&before=${BEFORE}" -o reservations_before.json
+
+            # after should include entries with to == after (inclusive)
+            AFTER="2026-01-12"
+            curl -fsS "http://127.0.0.1:${{ env.PORT }}/api/v3/reservations/reservations?room_id=${ROOM_ID}&after=${AFTER}" -o reservations_after.json
+
+            python3 - <<'PY'
+          import json
+          from datetime import date
+
+          ROOM_ID="11111111-1111-1111-1111-111111111111"
+          BEFORE=date.fromisoformat("2026-01-10")
+          AFTER=date.fromisoformat("2026-01-12")
+
+          def load(p):
+            d = json.load(open(p, "r", encoding="utf-8"))
+            rs = d.get("reservations")
+            assert isinstance(rs, list)
+            return rs
+
+          rs_before = load("reservations_before.json")
+          rs_after  = load("reservations_after.json")
+
+          # must respect room_id and filter constraints
+          for r in rs_before:
+            assert r["room_id"] == ROOM_ID
+            frm = date.fromisoformat(r["from"])
+            assert frm <= BEFORE
+
+          for r in rs_after:
+            assert r["room_id"] == ROOM_ID
+            to = date.fromisoformat(r["to"])
+            assert to >= AFTER
+
+          # inclusive: expect at least one boundary match if seed contains these values
+          assert any(r["from"] == "2026-01-10" for r in rs_before), "expected an entry with from==before (inclusive)"
+          assert any(r["to"]   == "2026-01-12" for r in rs_after),  "expected an entry with to==after (inclusive)"
+          PY
 
             echo "=== HAPPY: stopping container ==="
             docker stop reservations_ci_happy
@@ -122,14 +232,7 @@ jobs:
               --name reservations_ci_fail \
               ${{ env.IMAGE_NAME }}:${{ github.sha }}
 
-            echo "=== FAIL: waiting for /health/live ==="
-            for i in {1..30}; do
-              if curl -fsS "http://127.0.0.1:${{ env.FAIL_PORT }}/api/v3/reservations/health/live" >/dev/null; then
-                echo "FAIL: Service is up (live)"
-                break
-              fi
-              sleep 1
-            done
+            wait_for "http://127.0.0.1:${{ env.FAIL_PORT }}/api/v3/reservations/health/live" "FAIL live"
 
             echo "=== FAIL: GET /health/ready (expect 503) ==="
             code=$(curl -sS -o ready_fail.json -w "%{http_code}" "http://127.0.0.1:${{ env.FAIL_PORT }}/api/v3/reservations/health/ready")
@@ -156,6 +259,12 @@ jobs:
           path: |
             smoke.log
             ready_fail.json
+            reservations_active.json
+            reservations_all.json
+            reservations_room.json
+            bad_room.json
+            reservations_before.json
+            reservations_after.json
 
       - name: Push image (main)
         if: github.ref == 'refs/heads/main'
