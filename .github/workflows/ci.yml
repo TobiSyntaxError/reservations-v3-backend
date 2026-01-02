@@ -3,8 +3,8 @@ name: build-test-push
 on:
   pull_request:
   push:
-    branches: [ "main" ]
-    tags: [ "v*" ]
+    branches: ["main"]
+    tags: ["v*"]
   workflow_dispatch:
 
 permissions:
@@ -40,7 +40,7 @@ jobs:
 
       - name: Set lowercase image name
         run: |
-          echo "IMAGE_NAME=ghcr.io/${GITHUB_REPOSITORY,,}/reservations" >> $GITHUB_ENV
+          echo "IMAGE_NAME=ghcr.io/${GITHUB_REPOSITORY,,}/reservations" >> "$GITHUB_ENV"
 
       - name: Log in to GHCR
         if: github.event_name != 'pull_request'
@@ -62,75 +62,75 @@ jobs:
       - name: Smoke test container (happy + failure)
         run: |
           set -euo pipefail
-          {
-            echo "=== smoke test start ==="
-            echo "IMAGE=${{ env.IMAGE_NAME }}:${{ github.sha }}"
-            echo "HAPPY_PORT=${{ env.PORT }}"
-            echo "FAIL_PORT=${{ env.FAIL_PORT }}"
 
-            wait_for() {
-              local url="$1"
-              local name="$2"
-              echo "=== waiting for $name: $url ==="
-              for i in {1..40}; do
-                if curl -fsS "$url" >/dev/null; then
-                  echo "$name: up"
-                  return 0
-                fi
-                sleep 1
-              done
-              echo "$name: did not become ready in time"
-              return 1
-            }
+          wait_for() {
+            local url="$1"
+            local name="$2"
+            echo "=== waiting for $name: $url ==="
+            for i in {1..40}; do
+              if curl -fsS "$url" >/dev/null; then
+                echo "$name: up"
+                return 0
+              fi
+              sleep 1
+            done
+            echo "$name: did not become ready in time"
+            return 1
+          }
 
-            ####################################################################
-            # HAPPY PATH: DB erreichbar -> /health/ready = 200
-            ####################################################################
-            echo "=== HAPPY: starting container with Postgres env ==="
-            docker run -d --rm \
-              -p ${{ env.PORT }}:${{ env.PORT }} \
-              -e POSTGRES_RESERVATIONS_HOST=host.docker.internal \
-              -e POSTGRES_RESERVATIONS_PORT=5432 \
-              -e POSTGRES_RESERVATIONS_DBNAME=reservations_v3 \
-              -e POSTGRES_RESERVATIONS_USER=postgres \
-              -e POSTGRES_RESERVATIONS_PASSWORD=postgres \
-              --add-host=host.docker.internal:host-gateway \
-              --name reservations_ci_happy \
-              ${{ env.IMAGE_NAME }}:${{ github.sha }}
+          echo "=== smoke test start ==="
+          echo "IMAGE=${{ env.IMAGE_NAME }}:${{ github.sha }}"
+          echo "HAPPY_PORT=${{ env.PORT }}"
+          echo "FAIL_PORT=${{ env.FAIL_PORT }}"
 
-            wait_for "http://127.0.0.1:${{ env.PORT }}/api/v3/reservations/health/live" "HAPPY live"
+          ####################################################################
+          # HAPPY PATH: DB erreichbar -> /health/ready = 200
+          ####################################################################
+          echo "=== HAPPY: starting container with Postgres env ==="
+          docker run -d --rm \
+            -p ${{ env.PORT }}:${{ env.PORT }} \
+            -e POSTGRES_RESERVATIONS_HOST=host.docker.internal \
+            -e POSTGRES_RESERVATIONS_PORT=5432 \
+            -e POSTGRES_RESERVATIONS_DBNAME=reservations_v3 \
+            -e POSTGRES_RESERVATIONS_USER=postgres \
+            -e POSTGRES_RESERVATIONS_PASSWORD=postgres \
+            --add-host=host.docker.internal:host-gateway \
+            --name reservations_ci_happy \
+            ${{ env.IMAGE_NAME }}:${{ github.sha }}
 
-            echo "=== HAPPY: GET /status ==="
-            curl -fsS "http://127.0.0.1:${{ env.PORT }}/api/v3/reservations/status"
-            echo
+          wait_for "http://127.0.0.1:${{ env.PORT }}/api/v3/reservations/health/live" "HAPPY live"
 
-            echo "=== HAPPY: GET /health/ready (expect 200) ==="
-            curl -fsS "http://127.0.0.1:${{ env.PORT }}/api/v3/reservations/health/ready"
-            echo
+          echo "=== HAPPY: GET /status ==="
+          curl -fsS "http://127.0.0.1:${{ env.PORT }}/api/v3/reservations/status"
+          echo
 
-            echo "=== HAPPY: GET /health ==="
-            curl -fsS "http://127.0.0.1:${{ env.PORT }}/api/v3/reservations/health"
-            echo
+          echo "=== HAPPY: GET /health/ready (expect 200) ==="
+          curl -fsS "http://127.0.0.1:${{ env.PORT }}/api/v3/reservations/health/ready"
+          echo
 
-            echo "=== HAPPY: migrate DB ==="
-            docker exec reservations_ci_happy python manage.py migrate --noinput
+          echo "=== HAPPY: GET /health ==="
+          curl -fsS "http://127.0.0.1:${{ env.PORT }}/api/v3/reservations/health"
+          echo
 
-            echo "=== HAPPY: seed DB ==="
-            docker exec reservations_ci_happy python manage.py seed_reservations --reset
+          echo "=== HAPPY: migrate DB ==="
+          docker exec reservations_ci_happy python manage.py migrate --noinput
 
-            echo "=== HAPPY: GET /reservations (expect non-empty list, no deleted_at) ==="
-            curl -fsS "http://127.0.0.1:${{ env.PORT }}/api/v3/reservations/reservations" -o reservations_active.json
-            cat reservations_active.json
-            echo
+          echo "=== HAPPY: seed DB ==="
+          docker exec reservations_ci_happy python manage.py seed_reservations --reset
 
-            echo "=== HAPPY: GET /reservations?include_deleted=true (expect deleted_at entries) ==="
-            curl -fsS "http://127.0.0.1:${{ env.PORT }}/api/v3/reservations/reservations?include_deleted=true" -o reservations_all.json
-            cat reservations_all.json
-            echo
+          echo "=== HAPPY: GET /reservations (expect non-empty list, no deleted_at) ==="
+          curl -fsS "http://127.0.0.1:${{ env.PORT }}/api/v3/reservations/reservations" -o reservations_active.json
+          cat reservations_active.json
+          echo
 
-            echo "=== HAPPY: validate active vs include_deleted responses + pick dynamic test params ==="
-            eval $(python3 - <<'PY'
-          import json
+          echo "=== HAPPY: GET /reservations?include_deleted=true (expect deleted_at entries) ==="
+          curl -fsS "http://127.0.0.1:${{ env.PORT }}/api/v3/reservations/reservations?include_deleted=true" -o reservations_all.json
+          cat reservations_all.json
+          echo
+
+          echo "=== HAPPY: validate responses + pick dynamic test params ==="
+          python3 - <<'PY' > picked_env.sh
+          import json, shlex
           a = json.load(open("reservations_active.json", "r", encoding="utf-8"))
           b = json.load(open("reservations_all.json", "r", encoding="utf-8"))
 
@@ -146,22 +146,28 @@ jobs:
           assert len(allr) >= len(active), "include_deleted=true should have >= items than active"
 
           target = active[0]
-          print(f"ROOM_ID={target['room_id']}")
-          print(f"BEFORE={target['from']}")
-          print(f"AFTER={target['to']}")
-          print(f"TARGET_ID={target['id']}")
-          PY)
 
-            echo "Picked ROOM_ID=$ROOM_ID BEFORE=$BEFORE AFTER=$AFTER TARGET_ID=$TARGET_ID"
+          def ex(name, val):
+            print(f"export {name}={shlex.quote(str(val))}")
 
-            echo "=== HAPPY: room_id filter (expect only that room) ==="
-            curl -fsS "http://127.0.0.1:${{ env.PORT }}/api/v3/reservations/reservations?room_id=${ROOM_ID}" -o reservations_room.json
-            cat reservations_room.json
-            echo
+          ex("ROOM_ID", target["room_id"])
+          ex("BEFORE", target["from"])
+          ex("AFTER", target["to"])
+          ex("TARGET_ID", target["id"])
+          PY
 
-            python3 - <<'PY'
+          # shellcheck disable=SC1091
+          source picked_env.sh
+          echo "Picked ROOM_ID=$ROOM_ID BEFORE=$BEFORE AFTER=$AFTER TARGET_ID=$TARGET_ID"
+
+          echo "=== HAPPY: room_id filter (expect only that room) ==="
+          curl -fsS "http://127.0.0.1:${{ env.PORT }}/api/v3/reservations/reservations?room_id=${ROOM_ID}" -o reservations_room.json
+          cat reservations_room.json
+          echo
+
+          python3 - <<'PY'
           import json, os
-          ROOM_ID=os.environ["ROOM_ID"]
+          ROOM_ID = os.environ["ROOM_ID"]
           d = json.load(open("reservations_room.json", "r", encoding="utf-8"))
           rs = d.get("reservations")
           assert isinstance(rs, list) and len(rs) > 0, "expected at least one reservation for room_id filter"
@@ -169,14 +175,14 @@ jobs:
             assert r.get("room_id") == ROOM_ID, f"unexpected room_id {r.get('room_id')}"
           PY
 
-            echo "=== HAPPY: invalid room_id -> 400 + ErrorContainer ==="
-            code=$(curl -sS -o bad_room.json -w "%{http_code}" "http://127.0.0.1:${{ env.PORT }}/api/v3/reservations/reservations?room_id=not-a-uuid")
-            echo "http_code=$code"
-            cat bad_room.json
-            echo
-            test "$code" = "400"
+          echo "=== HAPPY: invalid room_id -> 400 + ErrorContainer ==="
+          code=$(curl -sS -o bad_room.json -w "%{http_code}" "http://127.0.0.1:${{ env.PORT }}/api/v3/reservations/reservations?room_id=not-a-uuid")
+          echo "http_code=$code"
+          cat bad_room.json
+          echo
+          test "$code" = "400"
 
-            python3 - <<'PY'
+          python3 - <<'PY'
           import json
           d = json.load(open("bad_room.json", "r", encoding="utf-8"))
           assert "errors" in d and isinstance(d["errors"], list) and len(d["errors"]) >= 1
@@ -184,13 +190,13 @@ jobs:
           assert "trace" in d and isinstance(d["trace"], str)
           PY
 
-            echo "=== HAPPY: before/after inclusive boundary checks (dynamic) ==="
-            curl -fsS "http://127.0.0.1:${{ env.PORT }}/api/v3/reservations/reservations?room_id=${ROOM_ID}&before=${BEFORE}" -o reservations_before.json
-            curl -fsS "http://127.0.0.1:${{ env.PORT }}/api/v3/reservations/reservations?room_id=${ROOM_ID}&after=${AFTER}" -o reservations_after.json
+          echo "=== HAPPY: before/after inclusive boundary checks (dynamic) ==="
+          curl -fsS "http://127.0.0.1:${{ env.PORT }}/api/v3/reservations/reservations?room_id=${ROOM_ID}&before=${BEFORE}" -o reservations_before.json
+          curl -fsS "http://127.0.0.1:${{ env.PORT }}/api/v3/reservations/reservations?room_id=${ROOM_ID}&after=${AFTER}" -o reservations_after.json
 
-            python3 - <<'PY'
+          python3 - <<'PY'
           import json, os
-          TARGET_ID=os.environ["TARGET_ID"]
+          TARGET_ID = os.environ["TARGET_ID"]
 
           rb = json.load(open("reservations_before.json", "r", encoding="utf-8")).get("reservations", [])
           ra = json.load(open("reservations_after.json", "r", encoding="utf-8")).get("reservations", [])
@@ -199,43 +205,42 @@ jobs:
           assert any(r.get("id") == TARGET_ID for r in ra), "inclusive after should include target when after==to"
           PY
 
-            echo "=== HAPPY: stopping container ==="
-            docker stop reservations_ci_happy
-            echo
+          echo "=== HAPPY: stopping container ==="
+          docker stop reservations_ci_happy
+          echo
 
-            ####################################################################
-            # FAILURE PATH: DB nicht erreichbar -> /health/ready = 503
-            ####################################################################
-            echo "=== FAIL: starting container with wrong DB host ==="
-            docker run -d --rm \
-              -p ${{ env.FAIL_PORT }}:${{ env.PORT }} \
-              -e POSTGRES_RESERVATIONS_HOST=does-not-exist \
-              -e POSTGRES_RESERVATIONS_PORT=5432 \
-              -e POSTGRES_RESERVATIONS_DBNAME=reservations_v3 \
-              -e POSTGRES_RESERVATIONS_USER=postgres \
-              -e POSTGRES_RESERVATIONS_PASSWORD=postgres \
-              --name reservations_ci_fail \
-              ${{ env.IMAGE_NAME }}:${{ github.sha }}
+          ####################################################################
+          # FAILURE PATH: DB nicht erreichbar -> /health/ready = 503
+          ####################################################################
+          echo "=== FAIL: starting container with wrong DB host ==="
+          docker run -d --rm \
+            -p ${{ env.FAIL_PORT }}:${{ env.PORT }} \
+            -e POSTGRES_RESERVATIONS_HOST=does-not-exist \
+            -e POSTGRES_RESERVATIONS_PORT=5432 \
+            -e POSTGRES_RESERVATIONS_DBNAME=reservations_v3 \
+            -e POSTGRES_RESERVATIONS_USER=postgres \
+            -e POSTGRES_RESERVATIONS_PASSWORD=postgres \
+            --name reservations_ci_fail \
+            ${{ env.IMAGE_NAME }}:${{ github.sha }}
 
-            wait_for "http://127.0.0.1:${{ env.FAIL_PORT }}/api/v3/reservations/health/live" "FAIL live"
+          wait_for "http://127.0.0.1:${{ env.FAIL_PORT }}/api/v3/reservations/health/live" "FAIL live"
 
-            echo "=== FAIL: GET /health/ready (expect 503) ==="
-            code=$(curl -sS -o ready_fail.json -w "%{http_code}" "http://127.0.0.1:${{ env.FAIL_PORT }}/api/v3/reservations/health/ready")
-            echo "FAIL: /health/ready http_code=$code"
-            cat ready_fail.json
-            echo
-            test "$code" = "503"
+          echo "=== FAIL: GET /health/ready (expect 503) ==="
+          code=$(curl -sS -o ready_fail.json -w "%{http_code}" "http://127.0.0.1:${{ env.FAIL_PORT }}/api/v3/reservations/health/ready")
+          echo "FAIL: /health/ready http_code=$code"
+          cat ready_fail.json
+          echo
+          test "$code" = "503"
 
-            echo "=== FAIL: GET /health (should still answer; likely ready=false) ==="
-            curl -sS "http://127.0.0.1:${{ env.FAIL_PORT }}/api/v3/reservations/health" || true
-            echo
+          echo "=== FAIL: GET /health (should still answer; likely ready=false) ==="
+          curl -sS "http://127.0.0.1:${{ env.FAIL_PORT }}/api/v3/reservations/health" || true
+          echo
 
-            echo "=== FAIL: stopping container ==="
-            docker stop reservations_ci_fail
-            echo
+          echo "=== FAIL: stopping container ==="
+          docker stop reservations_ci_fail
+          echo
 
-            echo "=== smoke test done ==="
-          } | tee smoke.log
+          echo "=== smoke test done ===" | tee smoke.log
 
       - name: Upload smoke log
         uses: actions/upload-artifact@v4
@@ -250,6 +255,7 @@ jobs:
             bad_room.json
             reservations_before.json
             reservations_after.json
+            picked_env.sh
 
       - name: Push image (main)
         if: github.ref == 'refs/heads/main'
