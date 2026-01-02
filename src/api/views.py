@@ -71,7 +71,7 @@ class HealthView(View):
 def _parse_bool(value: str | None, default: bool = True) -> bool:
     if value is None:
         return default
-    return value.strip().lower in {"1", "true", "yes", "y", "on"}
+    return value.strip().lower() in {"1", "true", "yes", "y", "on"}
 
 def _parse_uuid(value: str) -> UUID:
     return UUID(value)
@@ -130,7 +130,7 @@ class ReservationView(View):
                 before_d = _parse_date(before_row)
             except Exception:
                 return _error_container("Invalid before (must be date YYYY-MM-DD)", status=400)
-            qs = qs.filter(from_date__lt=before_d)
+            qs = qs.filter(from_date__lte=before_d)
 
         after_row = request.GET.get("after")
         if after_row:
@@ -138,7 +138,7 @@ class ReservationView(View):
                 after_d = _parse_date(after_row)
             except Exception:
                 return _error_container("Invalid after (must be date YYYY-MM-DD)", status=400)
-            qs = qs.filter(to_date__gt=after_d)
+            qs = qs.filter(to_date__gte=after_d)
 
         qs = qs.order_by("from_date", "to_date", "id")
 

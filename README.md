@@ -336,3 +336,9 @@ kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main
 kubectl wait --namespace ingress-nginx --for=condition=Ready pod --selector=app.kubernetes.io/component=controller --timeout=180s
 kubectl port-forward -n ingress-nginx svc/ingress-nginx-controller 9090:80
 ```
+
+## 7) Lokal nach Deployment neu starten
+```powershell
+kubectl rollout restart deployment/reservations -n biletado
+kubectl rollout status deployment/reservations -n biletado --timeout=240s
+```
