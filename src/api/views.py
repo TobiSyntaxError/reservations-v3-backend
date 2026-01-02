@@ -45,7 +45,7 @@ class HealthView(View):
             status=status
         )
         
-    def get(self, requst: HttpRequest, *args: Any, **kwargs: Any) -> JsonResponse:
+    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> JsonResponse:
         if self.action == "live":
             return JsonResponse({"live": True}, status=200)
         
@@ -65,13 +65,55 @@ class HealthView(View):
             },
             status=200
         )
-    
+
+
+
+def parse_bool(value: str | None, default: bool = True) -> bool:
+    if value is None:
+        return default
+    return value.strip().lower in {"1", "true", "yes", "y", "on"}
+
+def parse_uuid(value: str) -> UUID:
+    return UUID(value)
+
+def parse_date(value: str) -> date:
+    return date.fromisoformat(value)
+
+def error_container(message: str, *, status: int, code: str = "bad_request", more_info: str | None = None) -> JsonResponse:
+    payload: dict[str, Any] = {
+        "errors": [{"code": code, "message": message}],
+        "trace": str(__import__("uuid").uuid4()),
+    }
+    if more_info is not None:
+        payload["errors"][0]["more_info"] = more_info
+    return JsonResponse(payload, status=status)
 
 class ReservationView(View):
-    def get(self, requst: HttpRequest, *args: Any, **kwargs: Any) -> JsonResponse:
-        pass
+    def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> JsonResponse:
+        include_deleted = parse_bool(value=request.GET.get("include_deleted"))
+        
+        qs = Reservation.objects.all()
+        if not include_deleted:
+            qs = qs.filter(deleted_at__isnull=True)
 
-    def post(self, requst: HttpRequest, *args: Any, **kwargs: Any) -> JsonResponse:
+        room_id_row = request.GET.get("room_id")
+        if room_id_row:
+            try:
+                room_id = parse_uuid(room_id_row)
+            except Exception:
+                return error_container("Invalid room_id (must be uuid).", status=400)
+            qs = qs.filter(room_id=room_id)
+
+        before_row = request.GET.get("before")
+        if before_row:
+            try:
+                before_d = parse_date(before_row)
+            except Exception:
+                return error_container("Invalid before (must be date YYYY-MM-DD)", status=400)
+            qs = qs.filter(from_date__It=before_d)
+
+
+    def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> JsonResponse:
         pass
 
 class ReservationDetailView(View):
@@ -81,5 +123,5 @@ class ReservationDetailView(View):
     def put() -> JsonResponse:
         pass
     
-    def put() -> JsonResponse | HttpResponse:
+    def delete() -> JsonResponse | HttpResponse:
         pass
