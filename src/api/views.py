@@ -68,18 +68,18 @@ class HealthView(View):
 
 
 
-def parse_bool(value: str | None, default: bool = True) -> bool:
+def _parse_bool(value: str | None, default: bool = True) -> bool:
     if value is None:
         return default
     return value.strip().lower in {"1", "true", "yes", "y", "on"}
 
-def parse_uuid(value: str) -> UUID:
+def _parse_uuid(value: str) -> UUID:
     return UUID(value)
 
-def parse_date(value: str) -> date:
+def _parse_date(value: str) -> date:
     return date.fromisoformat(value)
 
-def error_container(message: str, *, status: int, code: str = "bad_request", more_info: str | None = None) -> JsonResponse:
+def _error_container(message: str, *, status: int, code: str = "bad_request", more_info: str | None = None) -> JsonResponse:
     payload: dict[str, Any] = {
         "errors": [{"code": code, "message": message}],
         "trace": str(__import__("uuid").uuid4()),
@@ -88,7 +88,7 @@ def error_container(message: str, *, status: int, code: str = "bad_request", mor
         payload["errors"][0]["more_info"] = more_info
     return JsonResponse(payload, status=status)
 
-def rfc3339(dt) -> str:
+def _rfc3339(dt) -> str:
     if dt is None:
         return ""
     if timezone.is_naive(dt):
@@ -97,7 +97,7 @@ def rfc3339(dt) -> str:
     s = dt_utc.isoformat(timespec="milliseconds")
     return s.replace("+00:00", "Z")
 
-def reservations_to_dict(r: Reservation) -> dict[str, Any]:
+def _reservations_to_dict(r: Reservation) -> dict[str, Any]:
     data: dict[str, Any] = {
         "id": str(r.id),
         "from": r.from_date.isoformat(),
@@ -105,12 +105,12 @@ def reservations_to_dict(r: Reservation) -> dict[str, Any]:
         "room_id": str(r.room_id),
     }
     if r.deleted_at is not None:
-        data["deleted_at"] = rfc3339(r.deleted_at)
+        data["deleted_at"] = _rfc3339(r.deleted_at)
     return data
 
 class ReservationView(View):
     def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> JsonResponse:
-        include_deleted = parse_bool(value=request.GET.get("include_deleted"))
+        include_deleted = _parse_bool(value=request.GET.get("include_deleted"))
         
         qs = Reservation.objects.all()
         if not include_deleted:
@@ -119,30 +119,30 @@ class ReservationView(View):
         room_id_row = request.GET.get("room_id")
         if room_id_row:
             try:
-                room_id = parse_uuid(room_id_row)
+                room_id = _parse_uuid(room_id_row)
             except Exception:
-                return error_container("Invalid room_id (must be uuid).", status=400)
+                return _error_container("Invalid room_id (must be uuid).", status=400)
             qs = qs.filter(room_id=room_id)
 
         before_row = request.GET.get("before")
         if before_row:
             try:
-                before_d = parse_date(before_row)
+                before_d = _parse_date(before_row)
             except Exception:
-                return error_container("Invalid before (must be date YYYY-MM-DD)", status=400)
+                return _error_container("Invalid before (must be date YYYY-MM-DD)", status=400)
             qs = qs.filter(from_date__lt=before_d)
 
         after_row = request.GET.get("after")
         if after_row:
             try:
-                after_d = parse_date(after_row)
+                after_d = _parse_date(after_row)
             except Exception:
-                return error_container("Invalid after (must be date YYYY-MM-DD)", status=400)
+                return _error_container("Invalid after (must be date YYYY-MM-DD)", status=400)
             qs = qs.filter(to_date__gt=after_d)
 
         qs = qs.order_by("from_date", "to_date", "id")
 
-        return JsonResponse({"reservations": {reservations_to_dict(r) for r in qs}}, status=200)
+        return JsonResponse({"reservations": [_reservations_to_dict(r) for r in qs]}, status=200)
 
     def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> JsonResponse:
         pass
