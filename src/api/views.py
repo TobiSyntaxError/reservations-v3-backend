@@ -11,7 +11,7 @@ import json
 from datetime import date
 from uuid import UUID
 
-from models import Reservation
+from .models import Reservation
 
 class StatusView(View):
     AUTHORS = ["Tobias Kipping", "Daniel Lohrengel"]
