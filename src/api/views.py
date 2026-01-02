@@ -4,6 +4,7 @@ from typing import Any
 from django.http import JsonResponse, HttpRequest, HttpResponse
 from django.views import View
 from django.db import connection
+from datetime import date, timezone as dt_timezone
 from django.utils import timezone
 from django.db.utils import OperationalError
 
@@ -93,7 +94,7 @@ def _rfc3339(dt) -> str:
         return ""
     if timezone.is_naive(dt):
         dt = timezone.make_aware(dt, timezone.get_current_timezone())
-    dt_utc = dt.astimezone(timezone.utc)
+    dt_utc = dt.astimezone(dt_timezone.utc)
     s = dt_utc.isoformat(timespec="milliseconds")
     return s.replace("+00:00", "Z")
 
