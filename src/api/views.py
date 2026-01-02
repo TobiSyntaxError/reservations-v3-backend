@@ -109,6 +109,30 @@ def _reservations_to_dict(r: Reservation) -> dict[str, Any]:
         data["deleted_at"] = _rfc3339(r.deleted_at)
     return data
 
+def _validate_prototype(payload: dict[str, Any]) -> tuple[date, date, UUID] | JsonResponse:
+    for k in ("from", "to", "room_id"):
+        if k not in payload:
+            return _error_container(f'Missing required property "{k}.', status=400)
+        
+    try:
+        from_d = _parse_date(payload["from"])
+        to_d = _parse_date(payload["to"])
+        room_id = _parse_uuid(payload["room_id"])
+    except Exception:
+        return _error_container("Inavalid Input (date/uuid parsing failed).", status=400)
+    
+    if not (from_d < to_d):
+        return _error_container('Invalid Input: "from must be < to.', status=400) 
+    
+    return from_d, to_d, room_id
+
+def _overlaps_exists(*, room_id: UUID, from_d: date, to_d: date, exclude_id: UUID | None = None) -> bool:
+    qs = Reservation.objects.filter(room_id=room_id, deleted_at__isnull=True)
+    if exclude_id is not None:
+        qs = qs.exclude(id=exclude_id)
+
+    return qs.filter(from_date__lt=to_d, to_date__gt=from_d).exists()
+
 class ReservationView(View):
     def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> JsonResponse:
         include_deleted = _parse_bool(value=request.GET.get("include_deleted"))
@@ -146,7 +170,28 @@ class ReservationView(View):
         return JsonResponse({"reservations": [_reservations_to_dict(r) for r in qs]}, status=200)
 
     def post(self, request: HttpRequest, *args: Any, **kwargs: Any) -> JsonResponse:
-        pass
+        try:
+            payload= json.loads(request.body.decode("utf-8") or "{}")
+        except Exception:
+            return _error_container("Invalid JSON body.", status=400)
+        
+        if not isinstance(payload, dict):
+            return _error_container("Invalid JSON body (must be object)", status=400)
+        validated = _validate_prototype(payload)
+        if isinstance(validated, JsonResponse):
+            return validated
+        
+        from_d, to_d, room_id = validated
+
+        if _overlaps_exists(room_id=room_id, from_d=from_d, to_d=to_d):
+            return _error_container(
+                "Invalid input: reservation overlaps with an existing reservation.",
+                status=400,
+                more_info="Reservations on rooms MUST NOT overlap"
+            )
+        room = Reservation.objects.create(room_id=room_id, from_d=from_d, to_d=to_d)
+        return JsonResponse(_reservations_to_dict(room), status=201)
+
 
 class ReservationDetailView(View):
     def _get_uuid(self, raw_id: str) -> UUID | None:
