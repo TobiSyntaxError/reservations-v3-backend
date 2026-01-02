@@ -301,14 +301,18 @@ kubectl apply -k deploy/kind --prune -l app.kubernetes.io/part-of=biletado -n bi
 kubectl rollout status deployment/reservations -n biletado --timeout=240s
 ```
 
-## 4) Datenbank-Migrationen ausführen (wichtig!)
+## 4) Datenbank initialisieren (Migrationen + Seed-Daten)
 
 Nach einem frischen Cluster (oder nach Model/Migration-Änderungen) ist die DB leer.  
-Damit die Reservations-Endpunkte funktionieren, musst du Migrationen im laufenden Pod ausführen:
+Damit die Reservations-Endpunkte funktionieren und du `GET /reservations` sinnvoll testen kannst, führst du erst die Migrationen aus und seedest dann Beispiel-Daten.
 
 ```powershell
 kubectl exec -n biletado deploy/reservations -- python manage.py migrate --noinput
+kubectl exec -n biletado deploy/reservations -- python manage.py seed_reservations --reset
 ```
+
+> Hinweis: `--reset` löscht vorhandene Reservierungen und legt die Beispiel-Daten neu an.  
+> Ohne `--reset` werden die Beispiel-Daten zusätzlich eingefügt.
 
 ## 5) Testen (gleich wie vorher)
 
@@ -317,6 +321,12 @@ kubectl port-forward -n biletado svc/reservations 9093:80
 
 curl.exe http://localhost:9093/api/v3/reservations/status
 curl.exe http://localhost:9093/api/v3/reservations/health
+
+# Beispiel: Reservations-Liste
+curl.exe "http://localhost:9093/api/v3/reservations/reservations"
+
+# Optional: gelöschte (soft-deleted) mit anzeigen
+curl.exe "http://localhost:9093/api/v3/reservations/reservations?include_deleted=true"
 ```
 
 ## 6) Weboberfläche (Ingress) bleibt gleich
