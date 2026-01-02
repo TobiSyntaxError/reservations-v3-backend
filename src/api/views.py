@@ -1,10 +1,17 @@
 from __future__ import annotations
 
 from typing import Any
-from django.http import JsonResponse, HttpRequest
+from django.http import JsonResponse, HttpRequest, HttpResponse
 from django.views import View
 from django.db import connection
+from django.utils import timezone
 from django.db.utils import OperationalError
+
+import json
+from datetime import date
+from uuid import UUID
+
+from models import Reservation
 
 class StatusView(View):
     AUTHORS = ["Tobias Kipping", "Daniel Lohrengel"]
@@ -58,3 +65,21 @@ class HealthView(View):
             },
             status=200
         )
+    
+
+class ReservationView(View):
+    def get(self, requst: HttpRequest, *args: Any, **kwargs: Any) -> JsonResponse:
+        pass
+
+    def post(self, requst: HttpRequest, *args: Any, **kwargs: Any) -> JsonResponse:
+        pass
+
+class ReservationDetailView(View):
+    def get() -> JsonResponse:
+        pass
+
+    def put() -> JsonResponse:
+        pass
+    
+    def put() -> JsonResponse | HttpResponse:
+        pass

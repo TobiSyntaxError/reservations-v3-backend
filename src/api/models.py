@@ -1,7 +1,7 @@
 import uuid
 from django.db import models
 
-class Reservations(models.Model):
+class Reservation(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     room_id = models.UUIDField()
     from_date = models.DateField()
@@ -15,4 +15,4 @@ class Reservations(models.Model):
         ]
 
     def __str__(self) -> str:
-        return f"Reservatio({self.id})"
+        return f"Reservation({self.id})"
